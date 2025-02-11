@@ -4,17 +4,22 @@ const cors = require('cors');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
+const archiver = require('archiver');
 
 const app = express();
 app.use(cors());
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
 
-// Ensure the uploads directory exists
+// Ensure the uploads and downloads directories exist
 const uploadsDir = path.join(__dirname, 'uploads');
-if (!fs.existsSync(uploadsDir)) {
-  fs.mkdirSync(uploadsDir, { recursive: true });
-}
+const downloadsDir = path.join(__dirname, 'downloads');
+
+[uploadsDir, downloadsDir].forEach(dir => {
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
+  }
+});
 
 // Set up multer for handling image uploads
 const upload = multer({ storage: multer.memoryStorage() });
@@ -28,39 +33,49 @@ app.post('/resize', upload.single('image'), async (req, res) => {
 
     // Define sizes for resizing
     const sizes = [
-      { width: 100, height: 100 },
-      { width: 300, height: 300 },
-      { width: 500, height: 500 }
+      { width: 1600, height: 2000 },
+      { width: 1600, height: 600 },
+      { width: 3000, height: 3000 }
     ];
 
-    const outputLinks = [];
+    const resizedImagePaths = [];
 
-    // Resize the image for each size and save it to the uploads folder
+    // Resize the image for each size and save it
     for (const { width, height } of sizes) {
-      const resizedImageBuffer = await sharp(req.file.buffer)
-        .resize(width, height)
-        .toBuffer();
-
       const fileName = `resized_${width}x${height}.jpg`;
       const filePath = path.join(uploadsDir, fileName);
 
-      // Save the resized image to the uploads directory
-      fs.writeFileSync(filePath, resizedImageBuffer);
+      const resizedImageBuffer = await sharp(req.file.buffer)
+        .resize(width, height, { fit: 'cover' })
+        .toBuffer();
 
-      // Generate a link to the resized image
-      outputLinks.push(`http://localhost:5001/uploads/${fileName}`);
+      fs.writeFileSync(filePath, resizedImageBuffer);
+      resizedImagePaths.push(filePath);
     }
 
-    // Return the links to the resized images
-    res.json({ links: outputLinks });
+    // Create a ZIP file with all resized images
+    const zipPath = path.join(downloadsDir, 'resized_images.zip');
+    const output = fs.createWriteStream(zipPath);
+    const archive = archiver('zip');
+
+    archive.pipe(output);
+    resizedImagePaths.forEach(filePath => {
+      archive.file(filePath, { name: path.basename(filePath) });
+    });
+
+    await archive.finalize();
+
+    // Return the download link for the ZIP file
+    res.json({ zipDownloadLink: `http://localhost:5001/downloads/resized_images.zip` });
   } catch (error) {
     console.error('Error resizing image:', error);
     res.status(500).send('An error occurred while resizing the image');
   }
 });
 
-// Serve the resized images from the "uploads" directory
+// Serve the resized images and ZIP file
 app.use('/uploads', express.static(uploadsDir));
+app.use('/downloads', express.static(downloadsDir));
 
 app.listen(5001, () => {
   console.log('Server listening on port 5001');
