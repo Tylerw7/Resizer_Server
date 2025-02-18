@@ -1,21 +1,20 @@
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
-const User = require('../Models/user')
+const supabase = require('../Data/db') 
 
 
 exports.register = async (req, res) => {
     const {email, password} = req.body;
+    const hashedPassword = await bcrypt.hash(password, 10)
 
     try {
-        const hashedPass = await bcrypt.hash(password, 10)
-        const user = await new User({
-            email,
-            password: hashedPass
-        })
+        const {error} = await supabase
+        .from('users')
+        .insert({email: email, password: hashedPassword})
 
-        await user.save();
-
+        res.json({message: "Success, user created"})
     } catch (err) {
-
+        console.log(err)
     }
+    
 }
